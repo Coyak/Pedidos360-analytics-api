@@ -1,0 +1,43 @@
+server:
+  port: ${SERVER_PORT:8086}
+
+spring:
+  application:
+    name: analytics-recommendations-api
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/pagos_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:123456}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      connection-timeout: 30000
+      validation-timeout: 5000
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+    consumer:
+      group-id: recommendation-consumer-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+    listener:
+      missing-topics-fatal: false
+      auto-startup: true
+
+# Configuración AWS DynamoDB (Puntos Extra +2)
+aws:
+  region: ${AWS_REGION:us-east-1}
+  dynamodb:
+    table-name: ${DYNAMODB_TABLE_NAME:Pedidos360_Interacciones}
+    endpoint: ${DYNAMODB_ENDPOINT:} # Vacio usa AWS real, o http://localhost:8000 si usa DynamoDB local
