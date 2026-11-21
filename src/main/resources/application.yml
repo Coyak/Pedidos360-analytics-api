@@ -5,7 +5,7 @@ spring:
   application:
     name: analytics-recommendations-api
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/pagos_db?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://${DB_HOST:mysql-db}:${DB_PORT:3306}/${DB_NAME:pagos_db}?useSSL=false&serverTimezone=UTC&allowPublicKeyRetrieval=true}
     username: ${SPRING_DATASOURCE_USERNAME:root}
     password: ${SPRING_DATASOURCE_PASSWORD:123456}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -20,7 +20,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.MySQLDialect
   kafka:
-    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:${KAFKA_HOST:kafka}:${KAFKA_PORT:29092}}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
@@ -40,4 +40,4 @@ aws:
   region: ${AWS_REGION:us-east-1}
   dynamodb:
     table-name: ${DYNAMODB_TABLE_NAME:Pedidos360_Interacciones}
-    endpoint: ${DYNAMODB_ENDPOINT:} # Vacio usa AWS real, o http://localhost:8000 si usa DynamoDB local
+    endpoint: ${DYNAMODB_ENDPOINT:}

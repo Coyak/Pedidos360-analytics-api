@@ -11,10 +11,11 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @RestController
-@RequestMapping("/api/recomendaciones")
+@RequestMapping({"/api/recomendaciones", "/api"})
 @CrossOrigin(origins = "*")
 @RequiredArgsConstructor
 public class RecomendacionesController {
@@ -34,19 +35,37 @@ public class RecomendacionesController {
     }
 
     /**
-     * Endpoint oficial requerido: Retorna los productos sugeridos para el cliente en base a sus eventos de Kafka
+     * Endpoint oficial por PathVariable: GET /api/recomendaciones/{userId}
      */
     @GetMapping("/{userId}")
-    public ResponseEntity<List<Producto>> obtenerRecomendaciones(@PathVariable String userId) {
+    public ResponseEntity<?> obtenerRecomendaciones(@PathVariable String userId) {
+        if ("status".equalsIgnoreCase(userId)) {
+            return getStatus();
+        }
+        if ("metricas".equalsIgnoreCase(userId)) {
+            return obtenerMetricas();
+        }
         log.info(">>> [GET /api/recomendaciones/{}] Solicitando recomendaciones personalizadas", userId);
         List<Producto> recomendados = recomendacionesService.obtenerRecomendacionesParaUsuario(userId);
         return ResponseEntity.ok(recomendados);
     }
 
     /**
-     * Endpoint para simular o recibir interacciones directas y publicarlas a Kafka
+     * Soporte por Query Param: GET /api/recomendaciones?userId=...
      */
-    @PostMapping("/interaccion")
+    @GetMapping
+    public ResponseEntity<List<Producto>> obtenerRecomendacionesQuery(
+            @RequestParam(value = "userId", defaultValue = "cliente@pedidos360.com") String userId) {
+        log.info(">>> [GET /api/recomendaciones?userId={}] Solicitando recomendaciones personalizadas", userId);
+        List<Producto> recomendados = recomendacionesService.obtenerRecomendacionesParaUsuario(userId);
+        return ResponseEntity.ok(recomendados);
+    }
+
+    /**
+     * Endpoint para registrar interacciones de usuario (view, cart, purchase) y publicarlas a Kafka.
+     * Soporta tanto POST /api/recomendaciones/interaccion como POST /api/interacciones.
+     */
+    @PostMapping({"/interaccion", "/interacciones"})
     public ResponseEntity<?> registrarInteraccion(@RequestBody InteractionRequestsDTO request) {
         if (request.getClientId() == null || request.getItemId() == null) {
             return ResponseEntity.badRequest().body(Map.of("error", "clientId e itemId son obligatorios"));
@@ -56,14 +75,35 @@ public class RecomendacionesController {
         }
 
         try {
-            kafkaTemplate.send("interacciones-user", request.getClientId(), request);
-            log.info(">>> [KAFKA DISPATCH] Interacción publicada al tópico 'interacciones-user'");
+            kafkaTemplate.send("interacciones-user", request.getClientId(), request).get(2, TimeUnit.SECONDS);
+            log.info(">>> [KAFKA DISPATCH] Interacción publicada al tópico 'interacciones-user': {} -> {}",
+                    request.getClientId(), request.getItemId());
             return ResponseEntity.ok(Map.of("status", "ENVIADO_A_KAFKA", "data", request));
         } catch (Exception e) {
-            log.warn("Fallo al enviar a Kafka ({}). Procesando localmente.", e.getMessage());
-            recomendacionesService.calcularYGuardarTop5(request.getClientId());
+            log.warn("Broker Kafka no disponible de inmediato ({}). Persistiendo y recalculando directamente.", e.getMessage());
+            recomendacionesService.procesarInteraccionDirecta(request);
             return ResponseEntity.ok(Map.of("status", "PROCESADO_LOCALMENTE", "data", request));
         }
+    }
+
+    /**
+     * Consulta el snapshot actual de métricas analíticas (Top 5, totales, eventos y alertas antifraude)
+     */
+    @GetMapping("/metricas")
+    public ResponseEntity<?> obtenerMetricas() {
+        return ResponseEntity.ok(recomendacionesService.obtenerSnapshotMetricas());
+    }
+
+    /**
+     * Registra una alerta antifraude (HTTP 429) y emite actualización en vivo por WebSocket
+     */
+    @PostMapping("/alerta-fraude")
+    public ResponseEntity<?> registrarAlertaFraude(@RequestBody Map<String, String> body) {
+        String clientId = body != null ? body.getOrDefault("clientId", "cliente.bloqueado@pedidos360.com") : "cliente.bloqueado@pedidos360.com";
+        String razon = body != null ? body.getOrDefault("razon", "Ráfaga > 3 intentos en < 10 segundos (HTTP 429)") : "Ráfaga > 3 intentos en < 10 segundos (HTTP 429)";
+        String ip = body != null ? body.getOrDefault("ip", "190.161.42.12") : "190.161.42.12";
+        recomendacionesService.registrarAlertaFraude(clientId, razon, ip);
+        return ResponseEntity.ok(Map.of("status", "ALERTA_REGISTRADA", "clientId", clientId));
     }
 
     /**
@@ -71,7 +111,7 @@ public class RecomendacionesController {
      */
     @PostMapping("/emitir-metricas")
     public ResponseEntity<?> forzarEmision() {
-        recomendacionesService.transmitirMetricasActuales();
-        return ResponseEntity.ok(Map.of("status", "EMITIDO"));
+        Map<String, Object> snapshot = recomendacionesService.transmitirMetricasActuales();
+        return ResponseEntity.ok(Map.of("status", "EMITIDO", "metricas", snapshot));
     }
 }
